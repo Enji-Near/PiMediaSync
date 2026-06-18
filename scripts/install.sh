@@ -62,22 +62,20 @@ pip3 install -r ${WORKDIR}/requirements.txt
 # SystemD Setup
 APPLICATION_FLAGS="${APPLICATION_FLAGS:--c${WORKDIR}/example_config.py}"
 echo "APPLICATION_FLAGS=${APPLICATION_FLAGS}" > /etc/pimediasync.conf # setup pimediasync config file
+
+# The service runs inside the desktop user's X11 session so VLC can display
+# fullscreen on the monitor. Point the unit at the actual desktop user
+# (the user who ran sudo, or "pi" by default) and make sure that user can
+# access the DMX serial device (dialout), GPIO (gpio), and video (video).
+RUNUSER="${RUNUSER:-${SUDO_USER:-pi}}"
+sed -i "s/^User=.*/User=${RUNUSER}/" ${WORKDIR}/scripts/pimediasync.service
+sed -i "s#^Environment=XAUTHORITY=.*#Environment=XAUTHORITY=/home/${RUNUSER}/.Xauthority#" ${WORKDIR}/scripts/pimediasync.service
+usermod -aG dialout,gpio,video "${RUNUSER}" || true
+
 systemctl enable ${WORKDIR}/scripts/pimediasync.service
 
-# Adjust Display settings
-# On the Pi 5 / Raspberry Pi OS (Bookworm) the boot config lives in
-# /boot/firmware/config.txt and the legacy hdmi_* options are ignored by the
-# KMS display stack. To force a 1080p HDMI signal even when no monitor is
-# detected (useful for kiosk/headless installs) set a kernel video= mode on
-# the HDMI connector via cmdline.txt instead.
-BOOT_DIR="/boot/firmware"
-if [ ! -d "${BOOT_DIR}" ]; then
-    BOOT_DIR="/boot"   # fall back for older images
-fi
-if ! grep -q "video=HDMI-A-1" "${BOOT_DIR}/cmdline.txt"; then
-    # append to the single-line cmdline.txt
-    sed -i 's/$/ video=HDMI-A-1:1920x1080@60D/' "${BOOT_DIR}/cmdline.txt"
-fi
+# Display: the Raspberry Pi OS Desktop autodetects the connected monitor and
+# VLC plays fullscreen on it, so no manual HDMI/KMS configuration is required.
 
 # Setup tmpfs filesystem for log (protect the SDCard)
 if [ -z "$DEBUG" ]; then 

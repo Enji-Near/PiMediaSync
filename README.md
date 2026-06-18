@@ -78,10 +78,10 @@ Instead of running from an activation trigger, the application can be configured
 The `AUTOREPEAT` variable enables/disables the autorepeat function (`true`/`false`).
 
 ## Application Installation
-> **Note**: This application targets the **Raspberry Pi 5** running **Raspberry Pi OS (Bookworm, 64-bit)**. Media playback uses VLC and GPIO uses gpiozero (with the `lgpio` backend), both of which are Pi 5 compatible. The legacy OMXPlayer and `RPi.GPIO` stack (used on the Pi 3) is no longer supported.
+> **Note**: This application targets the **Raspberry Pi 5** running the full **Raspberry Pi OS Desktop (Bookworm, 64-bit)**. Video plays fullscreen on the connected monitor through VLC, and GPIO uses gpiozero (with the `lgpio` backend), both of which are Pi 5 compatible. The legacy OMXPlayer and `RPi.GPIO` stack (used on the Pi 3) is no longer supported. Because playback runs on the desktop's X11 session, the `systemd` service runs as the desktop user under `graphical.target` (configured automatically by `install.sh`).
 
 ### Step 1 - Install the Raspberry Pi operating system
-Use the [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to write **Raspberry Pi OS (64-bit)** to the SD card. The Imager also lets you pre-configure the hostname, SSH, and Wi-Fi, which can replace the manual SSH steps below.
+Use the [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to write the full **Raspberry Pi OS (64-bit) Desktop** image to the SD card. The Imager also lets you pre-configure the hostname, SSH, and Wi-Fi, which can replace the manual SSH steps below.
 
 #### MacOS
 Place SDCard in card reader. The card will mount, which will prevent the installation step. 

@@ -37,12 +37,11 @@ class VlcPlayer():
     def __init__(self, filename, logger=None):
         self.logger = logger or logging.getLogger("VlcPlayer")
 
-        # `--no-xlib` lets VLC run without an X11 desktop (e.g. Pi OS Lite),
-        # the rest just suppress on-screen titles/overlays for a clean output.
+        # Suppress on-screen titles/overlays for a clean fullscreen output on
+        # the Raspberry Pi OS Desktop (X11). VLC uses its default video output.
         self.instance = vlc.Instance(
             "--no-osd",
             "--no-video-title-show",
-            "--no-xlib",
             "--quiet",
         )
         self.player = self.instance.media_player_new()
@@ -145,7 +144,7 @@ class vlcPlayerMock():
     Mock class for instantiating when a video/audio file is not available
 
     The idea is to keep all code pertaining to the media player while allowing
-    for instances of OmxDmx without an actual VLC player.
+    for instances of MediaDmx without an actual VLC player.
     '''
 
     def __init__(self, filename):
@@ -206,10 +205,10 @@ class vlcPlayerMock():
         pass
 
 
-class OmxDmx(Thread):
+class MediaDmx(Thread):
     def __init__(self, buttonEvent, killEvent, mediafile=None, dmxDevice="/dev/null", autorepeat=False, dmxChannels=[1], dmxDefaultVals=255, defaultTransition_t=0, sequence=[]):
         super().__init__()
-        self.logger = logging.getLogger("omxdmx")
+        self.logger = logging.getLogger("mediadmx")
         self.buttonEvent = buttonEvent
         self.killEvent = killEvent
 

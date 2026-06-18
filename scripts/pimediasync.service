@@ -1,6 +1,7 @@
 [Unit]
-Description=display for miniature world, plays video and syncs lights. Starts on boot.
-After=multi-user.target
+Description=PiMediaSync: plays video (VLC) and syncs DMX lighting. Starts with the desktop session.
+After=graphical.target
+Wants=graphical.target
 
 [Service]
 Type=simple
@@ -9,9 +10,15 @@ RestartSec=3
 WorkingDirectory=/opt/pimediasync
 # Force gpiozero to use the lgpio backend (required on the Raspberry Pi 5).
 Environment=GPIOZERO_PIN_FACTORY=lgpio
+# VLC plays fullscreen on the Raspberry Pi OS Desktop, so the service must run
+# as the desktop user inside its running X11 session. install.sh rewrites
+# User= and XAUTHORITY to match the actual desktop user; DISPLAY=:0 targets the
+# primary display.
+User=pi
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/pi/.Xauthority
 EnvironmentFile=/etc/pimediasync.conf
 ExecStart=/usr/bin/python3 app.py $APPLICATION_FLAGS
 
-
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target

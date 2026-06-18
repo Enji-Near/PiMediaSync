@@ -2,7 +2,7 @@
 import argparse, sys, os, logging
 from time import sleep
 from threading import Event
-import omxdmx
+import mediadmx
 # Raspberry Pi 5 uses the new RP1 I/O controller, which the legacy RPi.GPIO
 # library does not support. gpiozero (with the lgpio backend) is the modern,
 # Pi 5-compatible replacement. NOTE: gpiozero uses BCM (Broadcom) pin
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     # player process to clean up (unlike the old omxplayer subprocess).
 
     buttonEvent = Event()
-    omxKillEvent = Event()
+    mediaKillEvent = Event()
 
     # GPIO devices are kept referenced here so gpiozero does not
     # garbage-collect them, and so they can be closed on shutdown.
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     schedulerKillEvent = Event()  # used later, even if not connected
     schedule_t = config['SCHEDULER_TIME']
     if (schedule_t > 0):
-        scheduledButton = omxdmx.RepeatScheduler(schedule_t, schedulerKillEvent,
+        scheduledButton = mediadmx.RepeatScheduler(schedule_t, schedulerKillEvent,
             callback=lambda event=buttonEvent: buttonCallback(event))
         scheduledButton.start()
         hasActivationInput = True
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     if not hasActivationInput and not autorepeat:
         player_log.info("No user input--button or timer--set and AUTOREPEAT is False. Program will sit and do nothing.")
 
-    omxDmxThread = omxdmx.OmxDmx(buttonEvent, omxKillEvent,
+    mediaDmxThread = mediadmx.MediaDmx(buttonEvent, mediaKillEvent,
                         mediafile=config['MEDIA_NAME'],
                         autorepeat=autorepeat,
                         dmxDevice=config["DMX_DEVICE"],
@@ -143,20 +143,20 @@ if __name__ == "__main__":
                         sequence=config['LIGHTING_SEQUENCE'])
 
     try:
-        omxDmxThread.start()
-        omxDmxThread.join()
+        mediaDmxThread.start()
+        mediaDmxThread.join()
     except KeyboardInterrupt as e:
         player_log.exception("KeyboardInterrupt")
         schedulerKillEvent.set()
-        omxKillEvent.set()
-        while(omxDmxThread.isAlive()):
+        mediaKillEvent.set()
+        while(mediaDmxThread.is_alive()):
             player_log.debug("waiting for thread to quit")
             sleep(1)
     except SystemExit as e:
         player_log.exception("SystemExit")
         schedulerKillEvent.set()
-        omxKillEvent.set()
-        while(omxDmxThread.isAlive()):
+        mediaKillEvent.set()
+        while(mediaDmxThread.is_alive()):
             player_log.debug("waiting for thread to quit")
             sleep(1)
     finally:
