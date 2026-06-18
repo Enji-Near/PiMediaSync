@@ -3,6 +3,12 @@ import logging
 '''
 Button Example Code
 
+****************************************** WARNING ******************************************
+
+ Raspberry Pi 5 uses a new RP1 I/O controller chip, the older RPi.GPIO library will not work.
+ 
+ ****************************************** WARNING ******************************************
+
 The code below shows an example setup for handling buttons interfacing with the Raspberry Pi
 via GPIOs. This is effectively how buttons are setup in the main of this software.
 
