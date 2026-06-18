@@ -9,8 +9,28 @@ import mediadmx
 # numbering, not the BOARD/physical numbering used by the old RPi.GPIO code.
 from gpiozero import Button, DigitalInputDevice
 
-from flask.config import Config as fConfig
 import default_config
+
+
+class ConfigDict(dict):
+    '''
+    Minimal configuration container, replacing flask.config.Config.
+
+    The application only used Flask's Config as a dict-like loader, which
+    pulled in Flask/Jinja2/Werkzeug (and broke on modern Jinja2/Python).
+    This imports only the UPPERCASE attributes from a config object, mirroring
+    flask.config.Config.from_object().
+    '''
+
+    def __init__(self, root_path=".", defaults=None):
+        super().__init__(defaults or {})
+        self.root_path = root_path
+
+    def from_object(self, obj):
+        for key in dir(obj):
+            if key.isupper():
+                self[key] = getattr(obj, key)
+
 
 def buttonCallback(buttonEvent):
     '''
@@ -64,7 +84,7 @@ if __name__ == "__main__":
         level=loglevel)
 
     # generate application config
-    config = fConfig("./")
+    config = ConfigDict("./")
     config.from_object(default_config.Config)  # load defaults
 
     # would try to import with `from_pyfile()` but doesn't work for this format 
