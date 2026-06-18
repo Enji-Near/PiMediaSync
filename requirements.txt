@@ -1,5 +1,5 @@
 python-vlc==3.0.20123
 gpiozero==2.0.1
 lgpio==0.2.2.0
-evento==1.0.5
+evento==1.0.2
 flask==1.0.2
