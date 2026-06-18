@@ -15,7 +15,7 @@ This application currently supports:
 ### Media File
 Currently, only one media file (video or audio) is supported.
 
-The media file can be nearly any audio or video format (see [OmxPlayer](https://elinux.org/Omxplayer) for details). 
+The media file can be nearly any audio or video format (playback is handled by [VLC](https://www.videolan.org/vlc/) via [python-vlc](https://pypi.org/project/python-vlc/)).
 
 The media file can currently only be played from the **beginning**. However, media files can be stopped before the end of the file through the `LIGHTING_SEQUENCE` (see [example_config.py](./example_config.py)) by setting the last sequence element to stop before the duration of the media file. This is useful in an instance where editing the video file would be cumbersome and ending early is ideal. 
 
@@ -53,10 +53,17 @@ The input can only be activated once per sequence and will ignore all presses un
 If the input is not configured, the application will still run. 
 
 #### Configuration
-The `GPIO_VALUES` variable configures the input component. The sub-components of this variables are:
+GPIO input is handled with [gpiozero](https://gpiozero.readthedocs.io/) so that it works on the Raspberry Pi 5 (the legacy `RPi.GPIO` library does not support the Pi 5's RP1 I/O controller).
 
-* 'pin': the GPIO pin on the Raspberry PI where the system is configured (e.g. `10` for pin 10 on the PI)
-* 'pull_up_down': the state of the *pull up*/*pull down* internal resistor of the system (e.g. `GPIO.PUD_OFF` disables the internal resistor). See the Raspberry PI GPIO [documentation](https://sourceforge.net/p/raspberry-gpio-python/wiki/Inputs/) for more details.
+> **Note**: gpiozero uses **BCM (Broadcom) GPIO numbering**, not the physical/BOARD pin numbering used by the old `RPi.GPIO`-based code. For example, BCM GPIO `15` is physical pin `10`. Existing configs migrating from a Pi 3 must convert their pin numbers accordingly.
+
+The `GPIO_VALUES` variable configures the input component. The sub-components of this variable are:
+
+* `pin`: the **BCM GPIO** number where the button is wired (e.g. `15`, which is physical pin 10). Set to `None` to disable the button.
+* `pull_up`: `True` enables the internal pull-up resistor (the pin rests HIGH and a press pulls it to GND, triggering the **FALLING** edge); `False` enables the internal pull-down (press triggers the **RISING** edge).
+* `bounce_time`: software debounce window in seconds (e.g. `0.2` for 200 ms). Set to `None` to disable debouncing.
+
+See [pi5_button_example.py](./pi5_button_example.py) for a minimal, self-contained Pi 5 button test script.
 
 ### Timed Trigger
 When configured, the input will act as a trigger for activating the media/lighting sequence on a timer. This operates just like the User Input configuration. This trigger is not mutually exclusive with the User Input configuration, however, when a sequence is running it must complete before the activation (button or timer) can trigger it again.
@@ -71,8 +78,10 @@ Instead of running from an activation trigger, the application can be configured
 The `AUTOREPEAT` variable enables/disables the autorepeat function (`true`/`false`).
 
 ## Application Installation
-### Step 1 - Install Raspbian operating system
-Download [Linux Debian Stretch Lite](https://www.raspberrypi.org/downloads/raspbian/) and unzip the file. This will result in a `.dmg` file
+> **Note**: This application targets the **Raspberry Pi 5** running **Raspberry Pi OS (Bookworm, 64-bit)**. Media playback uses VLC and GPIO uses gpiozero (with the `lgpio` backend), both of which are Pi 5 compatible. The legacy OMXPlayer and `RPi.GPIO` stack (used on the Pi 3) is no longer supported.
+
+### Step 1 - Install the Raspberry Pi operating system
+Use the [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to write **Raspberry Pi OS (64-bit)** to the SD card. The Imager also lets you pre-configure the hostname, SSH, and Wi-Fi, which can replace the manual SSH steps below.
 
 #### MacOS
 Place SDCard in card reader. The card will mount, which will prevent the installation step. 

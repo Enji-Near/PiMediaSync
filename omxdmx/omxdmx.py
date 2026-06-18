@@ -2,16 +2,128 @@ import sys
 import os
 from threading import Event, Thread
 import logging
-from time import sleep
+from time import sleep, monotonic
 from datetime import datetime
-from omxplayer.player import OMXPlayer, OMXPlayerDeadError
+import vlc
 import pysimpledmx
 
-# neeeded for omxPlayerMock
+# neeeded for vlcPlayerMock
 import evento
 
 # globals
 END_DURATION_OFFSET = .25  # if no SEQUENCE defined, this variable sets how far from the end of the media file to automatically stop playing
+
+
+class PlayerDeadError(Exception):
+    '''
+    Raised when the underlying media player has entered an unrecoverable
+    state. Replaces omxplayer-wrapper's ``OMXPlayerDeadError`` so the rest
+    of the application can keep the same control flow.
+    '''
+    pass
+
+
+class VlcPlayer():
+    '''
+    Thin wrapper around python-vlc (libVLC) that exposes the same interface
+    the rest of the application previously relied on from OMXPlayer.
+
+    OMXPlayer was deprecated in 2020 and does not run on Raspberry Pi 4/5.
+    libVLC is the modern, actively-maintained replacement and runs on the
+    Pi 5. All positions/durations are exposed in *seconds* (libVLC works in
+    milliseconds internally) to match the original OMXPlayer behaviour.
+    '''
+
+    def __init__(self, filename, logger=None):
+        self.logger = logger or logging.getLogger("VlcPlayer")
+
+        # `--no-xlib` lets VLC run without an X11 desktop (e.g. Pi OS Lite),
+        # the rest just suppress on-screen titles/overlays for a clean output.
+        self.instance = vlc.Instance(
+            "--no-osd",
+            "--no-video-title-show",
+            "--no-xlib",
+            "--quiet",
+        )
+        self.player = self.instance.media_player_new()
+        self.media = self.instance.media_new(filename)
+        self.player.set_media(self.media)
+        self.player.set_fullscreen(True)
+
+        # Parse the media up-front so duration() is available before playback
+        # begins (the sync logic needs it when building a default sequence).
+        self.media.parse_with_options(vlc.MediaParseFlag.local, 3000)
+        deadline = monotonic() + 3.0
+        while self.media.get_duration() <= 0 and monotonic() < deadline:
+            sleep(0.05)
+
+        # Event hooks kept for API parity with the old OMXPlayer wrapper.
+        self.playEvent = evento.event.Event()
+        self.pauseEvent = evento.event.Event()
+        self.stopEvent = evento.event.Event()
+        self.exitEvent = evento.event.Event()
+        self.seekEvent = evento.event.Event()
+        self.positionEvent = evento.event.Event()
+
+    def hide_video(self):
+        # OMXPlayer removed the video layer to show a blank screen when idle.
+        # Stopping VLC achieves the same blank-screen result; the next
+        # play() restarts the media from the beginning.
+        self.player.stop()
+
+    def show_video(self):
+        self.player.set_fullscreen(True)
+
+    def play(self):
+        self.player.play()
+        self.playEvent(self)
+
+    def pause(self):
+        self.player.set_pause(1)
+        self.pauseEvent(self)
+
+    def stop(self):
+        self.player.stop()
+        self.stopEvent(self)
+
+    def exit(self):
+        self.player.stop()
+        self.exitEvent(self)
+
+    def seek(self, seconds):
+        # OMXPlayer.seek() was a *relative* seek in seconds.
+        target_ms = int(self.player.get_time() + (seconds * 1000))
+        self.player.set_time(max(0, target_ms))
+        self.seekEvent(self)
+
+    def seek_to_start(self):
+        self.player.set_time(0)
+        self.seekEvent(self)
+
+    def position(self):
+        current_ms = self.player.get_time()
+        return (current_ms / 1000.0) if current_ms > 0 else 0.0
+
+    def duration(self):
+        length_ms = self.player.get_length()
+        if length_ms <= 0:
+            length_ms = self.media.get_duration()
+        return (length_ms / 1000.0) if length_ms > 0 else 0.0
+
+    def playback_status(self):
+        state = self.player.get_state()
+        if state == vlc.State.Error:
+            raise PlayerDeadError("VLC media player entered an error state")
+        if state == vlc.State.Playing:
+            return "Playing"
+        if state == vlc.State.Paused:
+            return "Paused"
+        return "Stopped"
+
+    def quit(self):
+        self.player.stop()
+        self.player.release()
+        self.instance.release()
 
 class dmxMock(pysimpledmx.DMXConnection):
     '''
@@ -28,17 +140,17 @@ class dmxMock(pysimpledmx.DMXConnection):
         self.logger.info("Duration: {}".format(duration))
 
 
-class omxPlayerMock():
+class vlcPlayerMock():
     '''
     Mock class for instantiating when a video/audio file is not available
 
-    The idea is to keep all code pertaining to omxPlayer while allowing
-    for instances of OmxDmx without an actual OMXPlayer.
+    The idea is to keep all code pertaining to the media player while allowing
+    for instances of OmxDmx without an actual VLC player.
     '''
 
     def __init__(self, filename):
-        self.logger = logging.getLogger("omxPlayerMock")
-        self.logger.info("Mock OMXPlayer class initiated")
+        self.logger = logging.getLogger("vlcPlayerMock")
+        self.logger.info("Mock VLC player class initiated")
 
         self.pauseEvent = evento.event.Event()
         self.playEvent = evento.event.Event()
@@ -76,6 +188,9 @@ class omxPlayerMock():
         self.exitEvent(self)
 
     def seek(self, val):
+        self.seekEvent(self)
+
+    def seek_to_start(self):
         self.seekEvent(self)
 
     def playback_status(self):
@@ -169,22 +284,22 @@ class OmxDmx(Thread):
                 break
 
             while self.playing:
-                # make sure OMXPlayer still exists
+                # make sure the media player is still alive
                 try:
                     self.player.playback_status()
-                except OMXPlayerDeadError as e:
-                    self.logger.exception("OMXPlayer has died. Exiting")
+                except PlayerDeadError as e:
+                    self.logger.exception("Media player has died. Exiting")
                     sys.exit(1)
 
                 self.playFromBeginning()
                 for steps in self.sequence:
                     try:
                         self.player.playback_status()
-                    except OMXPlayerDeadError as e:
-                        self.logger.exception("OMXPlayer has died. Exiting")
+                    except PlayerDeadError as e:
+                        self.logger.exception("Media player has died. Exiting")
                         sys.exit(1)
 
-                    # OMXPlayer exits if the whole video plays.
+                    # the player stops if the whole video plays.
                     self.logger.debug("player at position: {}".format(self.player.position()))
 
                     end_check = (self.player.duration() - steps['end_time'])
@@ -227,47 +342,46 @@ class OmxDmx(Thread):
     def playFromBeginning(self):
         '''
         Simple wrapper for playing from start.
-        Could extend omxplayer class...
         '''
 
-        self.player.seek(-(self.player.position() + .5))  # player to "beginning"
-        sleep(.1)
         self.player.play()
+        sleep(.1)
+        self.player.seek_to_start()  # player to "beginning"
         sleep(.5)
         self.player.show_video()
 
     @staticmethod
     def playerFactory(filename, logger):
         '''
-        Creates an instance of OMXPlayer the starting state
-        we desire.
+        Creates an instance of VlcPlayer in the starting state we desire.
 
-        If filename does not exist (or is None), generates a Mock devices
+        If filename does not exist (or is None), generates a Mock device
         with equivalent functionality (but no media output)
         '''
 
         if filename is not None and not os.path.isfile(filename):
             logger.warning("Media file: {} DOES NOT EXIST".format(filename))
-            filename = None # force try to fail quickly below
+            filename = None # force use of the mock device below
 
-        try:
-            player = OMXPlayer(filename,
-                    dbus_name='org.mpris.MediaPlayer2.omxplayer1', args=['-b', '-o', 'both'])
-        except Exception as e:
-            player = omxPlayerMock(filename);
+        if filename is None:
+            player = vlcPlayerMock(filename)
+        else:
+            try:
+                player = VlcPlayer(filename, logger)
+            except Exception as e:
+                logger.exception("Could not start VLC, creating mock device")
+                player = vlcPlayerMock(filename)
 
         player.playEvent += lambda _: logger.debug("Play")
         player.pauseEvent += lambda _: logger.debug("Pause")
         player.stopEvent += lambda _: logger.debug("Stop")
 
-        while True:
-            try:
-                player.hide_video()
-                player.pause()
-                break
-            except Exception as e:
-                logger.exception("Exception in playerFactory")
-                sys.exit(1)
+        try:
+            player.hide_video()
+            player.pause()
+        except Exception as e:
+            logger.exception("Exception in playerFactory")
+            sys.exit(1)
         return player
 
 

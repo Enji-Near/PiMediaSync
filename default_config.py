@@ -8,19 +8,24 @@ class Config():
     have to be set in external config files)
     '''
 
-    # location and filename of mediafile for playing (uses OMXPlayer to play). 
+    # location and filename of mediafile for playing (uses VLC to play).
     # If none provided (or incorrect provided), creates fake virtual device
     MEDIA_NAME = None
 
-    # Enttec serial device for DMX output. 
+    # Enttec serial device for DMX output.
     # If none provided (or incorrect provided), creates fake virtual device
     DMX_DEVICE = "/dev/null"
 
-    # BUTTON setup values
-    # If none provided, no GPIO input is used
+    # BUTTON setup values (handled with gpiozero, Raspberry Pi 5 compatible)
+    # If 'pin' is None, no GPIO input is used.
+    #   'pin':         BCM GPIO number (NOT physical/BOARD pin). e.g. 15 == physical pin 10
+    #   'pull_up':     True  -> internal pull-up; a press connects the pin to GND (falling edge)
+    #                  False -> internal pull-down; a press connects the pin to 3V3 (rising edge)
+    #   'bounce_time': software debounce window in seconds (None disables it)
     GPIO_VALUES = {
         'pin': None,
-        'pull_up_down': None,
+        'pull_up': True,
+        'bounce_time': 0.2,
     }
 
     # causes automatic start of sequence via scheduled "virtual" button press

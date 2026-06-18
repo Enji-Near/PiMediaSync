@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 import argparse, sys, os, logging
-import subprocess, signal
 from time import sleep
 from threading import Event
 import omxdmx
-import RPi.GPIO as GPIO
+# Raspberry Pi 5 uses the new RP1 I/O controller, which the legacy RPi.GPIO
+# library does not support. gpiozero (with the lgpio backend) is the modern,
+# Pi 5-compatible replacement. NOTE: gpiozero uses BCM (Broadcom) pin
+# numbering, not the BOARD/physical numbering used by the old RPi.GPIO code.
+from gpiozero import Button, DigitalInputDevice
 
 from flask.config import Config as fConfig
 import default_config
@@ -17,40 +20,26 @@ def buttonCallback(buttonEvent):
     player_log.debug("Button Pressed")
     buttonEvent.set()
 
-def buttonSetup(pin, pull_up_down, event):
+def buttonSetup(pin, pull_up, bounce_time, event):
     '''
     Simple helper function to get all button stuff setup
     including the button callback.
 
-    the GPIO class appears to be a singleton of sorts
-
+    Uses gpiozero (Pi 5 compatible). ``pin`` is a BCM GPIO number.
+    A press triggers the FALLING edge (``when_pressed``) when ``pull_up`` is
+    True. The returned Button must be kept referenced for the lifetime of the
+    program so gpiozero does not garbage-collect it.
     '''
 
-    GPIO.setwarnings(False) # Ignore warning for now
-    GPIO.setmode(GPIO.BOARD) # Use physical pin numbering
-    GPIO.setup(pin, GPIO.IN, pull_up_down=pull_up_down)
-
-    buttoncb = lambda threadChannel, event=event: buttonCallback(event) # hack to get args into button function
-    GPIO.add_event_detect(pin, GPIO.FALLING, callback=buttoncb)
-
-def killProcess(processName):
-    '''
-    Kills Linux processes by name
-    '''
-    p = subprocess.Popen(['ps', '-A'], stdout=subprocess.PIPE)
-    out, err = p.communicate()
-    for line in out.splitlines():
-        if processName in str(line):
-            pid = int(line.split(None, 1)[0])
-            player_log.debug("Rogue process: {0} with PID: {1} found. Killing.".format(processName, pid))
-            os.kill(pid, signal.SIGKILL)
-            player_log.debug("Rogue process: {0} with PID: {1} killed.".format(processName, pid))
+    button = Button(pin, pull_up=pull_up, bounce_time=bounce_time)
+    button.when_pressed = lambda event=event: buttonCallback(event)
+    return button
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Syncronizes video and dmx lighting \
-        sequences on a Raspberry Pi using OMXPlayer and \
+        sequences on a Raspberry Pi using VLC and \
         and Enttec USB-to-DMX converter.")
     parser.add_argument(
         "-d",
@@ -91,11 +80,15 @@ if __name__ == "__main__":
         finally:
             sys.path[:] = path # restore
 
-    # removed any leftover omxplayer processes
-    killProcess("omxplayer")
+    # VLC runs in-process via python-vlc, so there is no leftover external
+    # player process to clean up (unlike the old omxplayer subprocess).
 
     buttonEvent = Event()
     omxKillEvent = Event()
+
+    # GPIO devices are kept referenced here so gpiozero does not
+    # garbage-collect them, and so they can be closed on shutdown.
+    button = None
 
     # flag for informing if application can ever activate
     hasActivationInput = False
@@ -114,24 +107,28 @@ if __name__ == "__main__":
 
     # Attempt to setup user input (button)
     gpio_values = config['GPIO_VALUES']
-    if gpio_values['pin'] and gpio_values['pull_up_down']:
-        buttonSetup(gpio_values['pin'],
-            gpio_values['pull_up_down'],
+    if gpio_values['pin'] is not None:
+        button = buttonSetup(gpio_values['pin'],
+            gpio_values.get('pull_up', True),
+            gpio_values.get('bounce_time', 0.2),
             buttonEvent)
         hasActivationInput = True
-        player_log.info("Button enabled on pin {}.".format(gpio_values['pin']))
+        player_log.info("Button enabled on BCM GPIO {}.".format(gpio_values['pin']))
     else:
         player_log.info("Button not enabled.".format())
 
 
     # check for AUTOREPEAT in config OR AUTOREPEAT toggle switch
     autorepeat = config['AUTOREPEAT']
-    if (config['AUTOREPEAT_TOGGLE']['gpio_pin']):
+    if (config['AUTOREPEAT_TOGGLE']['gpio_pin'] is not None):
         channel = config['AUTOREPEAT_TOGGLE']['gpio_pin']
-        GPIO.setwarnings(False) # Ignore warning for now
-        GPIO.setmode(GPIO.BOARD) # Use physical pin numbering
-        GPIO.setup(channel, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        autorepeat = GPIO.input(channel) # read toggle ONCE and set to start
+        # Read the toggle ONCE at startup. gpiozero's DigitalInputDevice with
+        # pull_up=True reports value==1 when the pin is pulled LOW (active);
+        # the original RPi.GPIO code enabled autorepeat when the pin read HIGH
+        # (idle), so invert to preserve the original switch behaviour.
+        toggle = DigitalInputDevice(channel, pull_up=True)
+        autorepeat = not toggle.value # read toggle ONCE and set to start
+        toggle.close()
 
     if not hasActivationInput and not autorepeat:
         player_log.info("No user input--button or timer--set and AUTOREPEAT is False. Program will sit and do nothing.")
@@ -163,4 +160,5 @@ if __name__ == "__main__":
             player_log.debug("waiting for thread to quit")
             sleep(1)
     finally:
-        GPIO.cleanup()
+        if button is not None:
+            button.close()

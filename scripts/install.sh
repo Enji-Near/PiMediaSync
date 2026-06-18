@@ -25,14 +25,17 @@ echo "Setting HOSTNAME to $PIHOSTNAME"
 echo "$PIHOSTNAME" > /etc/hostname
 
 # Install apt requirements
+# NOTE: omxplayer was deprecated in 2020 and does not run on the Pi 5; VLC
+# (libvlc, used via python-vlc) is the replacement media player.
+# liblgpio1 provides the Pi 5 GPIO backend used by gpiozero.
 apt-get update
 apt-get install --no-install-recommends -y \
     git \
     vim \
-    omxplayer \
+    vlc \
     python3 \
     python3-pip \
-    python3-dbus \
+    python3-lgpio \
     python3-setuptools
 apt-get clean
 
@@ -62,9 +65,19 @@ echo "APPLICATION_FLAGS=${APPLICATION_FLAGS}" > /etc/pimediasync.conf # setup pi
 systemctl enable ${WORKDIR}/scripts/pimediasync.service
 
 # Adjust Display settings
-echo "hdmi_force_hotplug=1" >> /boot/config.txt # HDMI mode even if no HDMI monitor is detected
-echo "hdmi_drive=2" >> /boot/config.txt # normal HDMI mode
-echo "hdmi_mode=16" >> /boot/config.txt # Always 1080p HDMI output
+# On the Pi 5 / Raspberry Pi OS (Bookworm) the boot config lives in
+# /boot/firmware/config.txt and the legacy hdmi_* options are ignored by the
+# KMS display stack. To force a 1080p HDMI signal even when no monitor is
+# detected (useful for kiosk/headless installs) set a kernel video= mode on
+# the HDMI connector via cmdline.txt instead.
+BOOT_DIR="/boot/firmware"
+if [ ! -d "${BOOT_DIR}" ]; then
+    BOOT_DIR="/boot"   # fall back for older images
+fi
+if ! grep -q "video=HDMI-A-1" "${BOOT_DIR}/cmdline.txt"; then
+    # append to the single-line cmdline.txt
+    sed -i 's/$/ video=HDMI-A-1:1920x1080@60D/' "${BOOT_DIR}/cmdline.txt"
+fi
 
 # Setup tmpfs filesystem for log (protect the SDCard)
 if [ -z "$DEBUG" ]; then 

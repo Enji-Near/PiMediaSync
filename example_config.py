@@ -1,15 +1,15 @@
-import RPi.GPIO as GPIO # required for GPIO configuration
-
 class Config():
     MEDIA_NAME = "./video/myvideo.mov" # ./ is relative to PiMediaSync repo
-    DMX_DEVICE = "/dev/ttyUSB0". # the DMX device
+    DMX_DEVICE = "/dev/ttyUSB0" # the DMX device
 
-    # configure button input on pin 10 with no internal pull up/down resistor
+    # configure button input using gpiozero (Raspberry Pi 5 compatible).
+    # 'pin' uses BCM GPIO numbering: BCM 15 is physical pin 10.
     GPIO_VALUES = {
-        'pin': 10,
-        'pull_up_down': GPIO.PUD_OFF,
+        'pin': 15,            # BCM GPIO 15 (== physical pin 10)
+        'pull_up': True,      # internal pull-up; press pulls pin to GND (falling edge)
+        'bounce_time': 0.2,   # 200ms software debounce
     }
-    
+
     SCHEDULER_TIME = 600 # activate sequence automatically every 10 minutes
 
     AUTOREPEAT=False # auto repeat disabled
