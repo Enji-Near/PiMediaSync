@@ -44,6 +44,34 @@ The `LIGHTING_SEQUENCE` variable defines a sequence of DMX attributes to be move
 * `dmx_transition`: the time (in seconds) for the DMX lights to move from previous state to current brightness levels.
 * `end_time`: the time elapsed (in seconds) that the current sequence ends. If the last sequence's `end_time` is less than the video duration, the video ends.
 
+#### Testing DMX without hardware
+You can verify the DMX behaviour without an Enttec USB-to-DMX device in two ways:
+
+**1. Logic check (no setup).** Point `DMX_DEVICE` at a path with no device attached (e.g. `/dev/ttyUSB0` when nothing is plugged in). The application falls back to a mock DMX device and logs every ramp it would perform — the channels, target levels, and transition time — in sync with playback. Run the app with the `-d` flag to also see debug detail:
+
+```bash
+./app.py -d -c your_config.py
+```
+
+This confirms your `CHANNELS` mapping and `LIGHTING_SEQUENCE` timing are correct.
+
+**2. Wire-level check (decodes the real DMX serial stream).** Use a virtual serial port to capture the exact bytes the application would send to a real Enttec interface:
+
+```bash
+sudo apt install socat
+# Creates two linked virtual ports, e.g. /dev/pts/3 and /dev/pts/4. Leave running:
+socat -d -d pty,raw,echo=0 pty,raw,echo=0
+```
+
+Set `DMX_DEVICE = "/dev/pts/3"` in your config, then run the decoder on the *other* port and the app against your config:
+
+```bash
+python3 scripts/dmx_monitor.py /dev/pts/4   # keep this running for the whole test
+./app.py -d -c your_config.py               # in another terminal
+```
+
+`scripts/dmx_monitor.py` decodes the Enttec USB Pro packets and prints channel values live as they change. **Keep the monitor running** while the app is using the virtual port — pySimpleDMX reboots the host if a serial write times out, and the monitor draining the port prevents that.
+
 
 ### User Input
 Currently, only a single button is supported (more specifically, a single logic high/low on a GPIO pin). When configured, the input will act as a trigger for activating the media/lighting sequence.
